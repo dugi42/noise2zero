@@ -1,91 +1,50 @@
-import numpy as np
-import scipy.stats as stats
-import scipy.special as special
-import scipy.signal as signal
-import random
-from typing import Callable, List, Tuple, Union
+import yaml
+import argparse
+import pandas as pd
 import matplotlib.pyplot as plt
+from src.harmoniq import BaseFunctionFactory, ParametricTimeSeriesGenerator
 
-class ParametricTimeSeriesGenerator:
-    def __init__(self, 
-                 base_functions: List[Callable],
-                 param_ranges: List[Tuple[Tuple[float, float], ...]],
-                 noise_type: str = 'normal',
-                 noise_params: Tuple = (0, 0.1),
-                 seed: Union[int, None] = None):
-        """
-        Initialize the generator.
-
-        Args:
-            base_functions: List of functions to superpose.
-            param_ranges: List of parameter ranges for each function.
-            noise_type: Type of noise ('normal', 'uniform', 'laplace', etc.).
-            noise_params: Parameters for noise distribution.
-            seed: Random seed for reproducibility.
-        """
-        self.base_functions = base_functions
-        self.param_ranges = param_ranges
-        self.noise_type = noise_type
-        self.noise_params = noise_params
-        self.random = np.random.RandomState(seed)
-
-    def _sample_parameters(self, param_range: Tuple[Tuple[float, float], ...]) -> List[float]:
-        return [self.random.uniform(low, high) for (low, high) in param_range]
-
-    def _generate_noise(self, size: int) -> np.ndarray:
-        if self.noise_type == 'normal':
-            return self.random.normal(*self.noise_params, size=size)
-        elif self.noise_type == 'uniform':
-            return self.random.uniform(*self.noise_params, size=size)
-        elif self.noise_type == 'laplace':
-            return self.random.laplace(*self.noise_params, size=size)
-        else:
-            raise ValueError(f"Unsupported noise type: {self.noise_type}")
-
-    def generate(self, t: np.ndarray) -> np.ndarray:
-        """
-        Generate the time series over a given time array.
-
-        Args:
-            t: Time array.
-
-        Returns:
-            np.ndarray: Time series values.
-        """
-        y = np.zeros_like(t)
-        for func, param_range in zip(self.base_functions, self.param_ranges):
-            params = self._sample_parameters(param_range)
-            y += func(t, *params)
-
-        noise = self._generate_noise(len(t))
-        return y + noise
-
-# Example usage
 if __name__ == "__main__":
-    
+    parser = argparse.ArgumentParser(description="Generate parametric time series from config file.")
+    parser.add_argument("--config", type=str, required=True, help="Path to configuration YAML file.")
+    parser.add_argument("--output", type=str, required=False, help="Path to output Parquet file.")
+    args = parser.parse_args()
 
-    # Define some base functions
-    def sinusoid(t, amplitude, frequency, phase):
-        return amplitude * np.sin(2 * np.pi * frequency * t + phase)
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
 
-    def gaussian(t, amplitude, mean, std_dev):
-        return amplitude * np.exp(-((t - mean) ** 2) / (2 * std_dev ** 2))
+    base_functions = BaseFunctionFactory.load_functions_from_config(config)
 
-    t = np.linspace(0, 10, 1000)
+    param_ranges = config['param_ranges']
+    noise_type = config['noise_type']
+    noise_params = tuple(config['noise_params'])
+    seed = config.get('seed', None)
+    repetitions = config['repetitions']
+    variation_scale = config['variation_scale']
+    to_utc = config.get('to_utc', False)
+
+    t_start = config['time']['start']
+    t_end = config['time']['end']
+    t_points = config['time']['points']
 
     generator = ParametricTimeSeriesGenerator(
-        base_functions=[sinusoid, gaussian],
-        param_ranges=[((0.8, 1.2), (0.9, 1.1), (0, np.pi)),  # for sinusoid
-                      ((0.5, 1.5), (4, 6), (0.3, 0.6))],     # for gaussian
-        noise_type='laplace',
-        noise_params=(0, 0.05),
-        seed=42
+        base_functions=base_functions,
+        param_ranges=param_ranges,
+        noise_type=noise_type,
+        noise_params=noise_params,
+        seed=seed
     )
 
-    y = generator.generate(t)
+    t_full, y = generator.generate(t_start=t_start, t_end=t_end, t_points=t_points, repetitions=repetitions, variation_scale=variation_scale, to_utc=to_utc)
 
-    plt.plot(t, y)
-    plt.title("Generated Parametric Time Series")
+    df = pd.DataFrame({'time': t_full, 'value': y})
+
+    if args.output:
+        print(f"Saving generated time series to {args.output}")
+        df.to_parquet(args.output, index=False)
+
+    plt.plot(t_full, y)
+    plt.title("Generated Parametric Time Series with Config")
     plt.xlabel("Time")
     plt.ylabel("Amplitude")
     plt.show()
