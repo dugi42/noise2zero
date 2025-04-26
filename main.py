@@ -4,6 +4,7 @@ import scipy.special as special
 import scipy.signal as signal
 import random
 from typing import Callable, List, Tuple, Union
+import matplotlib.pyplot as plt
 
 class ParametricTimeSeriesGenerator:
     def __init__(self, 
@@ -61,7 +62,7 @@ class ParametricTimeSeriesGenerator:
 
 # Example usage
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+    
 
     # Define some base functions
     def sinusoid(t, amplitude, frequency, phase):
